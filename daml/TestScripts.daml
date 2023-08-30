@@ -15,7 +15,7 @@ import DA.Time
       - owner exercises PreviousDeals to check renter history to see if he already made some deals
       - owner queries his Scooter contracts to see if they have some condition notes so he can know if he can rent them or not
       - owner exercises Accept to one of the requests, RentalDeal is created
-      - owner exercises Reject with the response comment "Scooter is unavailable between 14 and 16 Aug"
+      - owner exercises Reject to the second request with the response comment "Scooter is unavailable between 14 and 16 Aug"
     3. testFinishorRemove:
       - renter exercises CanFinishDeal to check if he can finish the rental deal
       - renter exercises FinishDeal to finish accepted deal after the end time, RentalRecipe is created

@@ -15,7 +15,7 @@ RentalRecipe is created on FinishDeal to provide history of previous rental deal
       2a. Owner exercises PreviousDeals to check renter history to see if he already made some deals
       2b. Owner queries his Scooter contracts to see if they have some condition notes so he can know if he can rent them or not
       2c. Owner exercises Accept to one of the requests, RentalDeal is created
-      2d. Owner exercises Reject with the response comment "Scooter is unavailable between 14 and 16 Aug"
+      2d. Owner exercises Reject to the second request with the response comment "Scooter is unavailable between 14 and 16 Aug"
       3a. Renter exercises CanFinishDeal to check if he can finish the rental deal
       3b. Renter exercises FinishDeal to finish accepted deal after the end time, RentalRecipe is created
       3c. Renter exercises RemoveRequest to remove/cancel rejected request

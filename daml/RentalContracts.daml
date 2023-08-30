@@ -8,7 +8,7 @@ data ScooterInfo = ScooterInfo with
   model: Text
     deriving (Show, Eq, Ord)
 
--- Scooter contract can be created by the owner with basic info and condition note provide help with deciding if scooter can be rented 
+-- Scooter contract can be created by the owner with basic info and condition note to provide helpful information when deciding if scooter can be rented 
 template Scooter
   with
     scooterInfo: ScooterInfo
