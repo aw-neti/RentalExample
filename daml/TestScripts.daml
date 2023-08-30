@@ -1,0 +1,201 @@
+module TestScripts where
+
+import Daml.Script
+import RentalContracts
+import SetupScripts
+import DA.Date
+import DA.Time
+
+
+{-
+    Full scenario x1 and Happy Paths x3:
+    1. testCreateRentRequest:
+      - renter creates two RentRequest contracts for renting two different scooters on different dates:
+    2. testAcceptDenyRentRequest:
+      - owner exercises PreviousDeals to check renter history to see if he already made some deals
+      - owner queries his Scooter contracts to see if they have some condition notes so he can know if he can rent them or not
+      - owner exercises Accept to one of the requests, RentalDeal is created
+      - owner exercises Reject with the response comment "Scooter is unavailable between 14 and 16 Aug"
+    3. testFinishorRemove:
+      - renter exercises CanFinishDeal to check if he can finish the rental deal
+      - renter exercises FinishDeal to finish accepted deal after the end time, RentalRecipe is created
+      - renter exercises RemoveRequest to remove/cancel rejected request
+    Full scenario is finished
+
+    5 Unhappy paths: 
+    1. testCantCreateRentRequestWithWrongDate:
+      - renter cannot create RentRequest contracts with wrong dates (end > start)
+    2. testCantAcceptRejectRequestIfNotOwner:
+      - renter cannot exercise Accept or Reject on his own RentRequest contracts (as he is not the owner)
+    3. testCantFinishDealIfNotRenter:
+      - owner cannot exercise FinishDeal on RentalDeal as he is not the renter
+    4. testCantFinishDealBeforeEnd:
+      - renter cannot exercise FinishDeal on his RentalDeal before the time ends (current time < end date)
+    5. testCantCreateOwnRecipe:
+      - renter cannot create RentalRecipe contracts as they are made only after the RentalDeal is finished
+-}
+
+-- test if renter can create RentRequest contract
+testCreateRentRequest = script do
+  (baseParties@BaseParties{..}, testScooterInfos@TestScooterInfos{..}) <- setupBase
+  
+  let
+    rentInfo1 = RentInfo with
+      scooterNumber = 1
+      renter
+      owner
+      start = time (date 2023 Aug 2) 12 30 00
+      end = time (date 2023 Aug 7) 14 30 00
+    
+    rentInfo2 = RentInfo with
+      scooterNumber = 2
+      renter
+      owner
+      start = time (date 2023 Aug 10) 12 30 00
+      end = time (date 2023 Aug 20) 14 00 00
+    
+  -- renter creates RentRequest contracts
+  request1 <- submit renter do
+    createCmd RentRequest with
+      requestInfo = rentInfo1
+      responseText = None
+
+  request2 <- submit renter do
+    createCmd RentRequest with
+      requestInfo = rentInfo2
+      responseText = None
+
+  return (baseParties, request1, request2)
+
+
+-- test if owner can Accept or Reject contract or exercise PreviousDeals to get previous deals info from renter
+testAcceptDenyRentRequest = script do
+  (baseParties@BaseParties{..}, request1, request2) <- testCreateRentRequest
+  -- for testing purpose we get all renter RentalRecipe contracts that are active
+  renterRecipes <- query @RentalRecipe renter
+
+  -- owner checks previous deals with renter
+  previousDealsInfo <- submit owner do
+    exerciseCmd request1 PreviousDeals with
+      previousDeals = renterRecipes
+  -- we use debug to check if the info is correct same as owner would do in real life
+  debug $ show previousDealsInfo 
+
+  -- owner checks the conditions of his scooters and sees that one of them is unavailable in the requested time
+  ownerScooters <- query @Scooter owner
+  debug $ show ownerScooters
+
+  -- owner exercises Accept on one of the requests
+  acceptedDeal1 <- submit owner do
+    exerciseCmd request1 Accept
+  
+  -- owner exercises Reject on the second request because scooter is scheduled for service
+  deniedRequest2 <- submit owner do
+    exerciseCmd request2 Reject with
+      response = Some "Scooter is unavailable between 14 and 16 Aug"
+
+  return (baseParties, acceptedDeal1, deniedRequest2)
+
+-- test if renter can exercise CanFinishDeal to check if he can finish deal and exercise FinishDeal on RentalDeal and RemoveRequest on RentRequest
+testFinishorRemove = script do
+  (baseParties@BaseParties{..}, acceptedDeal1, deniedRequest2) <- testAcceptDenyRentRequest
+
+  setTime(time (date 2023 Aug 9) 18 30 00)
+
+  -- renter exercises CanFinishDeal to check if he can finish or how long untill he can
+  canFinish <- submit renter do
+    exerciseCmd acceptedDeal1 CanFinishDeal
+  debug $ canFinish
+  
+  -- renter exercises FinishDeal to finish the deal, RentalRecipe is created
+  submit renter do
+    exerciseCmd acceptedDeal1 FinishDeal
+  
+  -- renter exercises RemoveRequest to archive the rejected request
+  submit renter do
+    exerciseCmd deniedRequest2 RemoveRequest
+
+  return ()
+
+
+--------------- Unhappy paths ---------------------------------------------
+
+-- renter cannot create RentRequest contracts with wrong dates (end > start)
+testCantCreateRentRequestWithWrongDate = script do
+  (baseParties@BaseParties{..}, testScooterInfos@TestScooterInfos{..}) <- setupBase
+
+  let
+    rentInfo1 = RentInfo with
+      scooterNumber = 1
+      renter
+      owner
+      start = time (date 2023 Aug 2) 12 30 00
+      end = time (date 2023 Jul 8) 14 30 00
+    
+    rentInfo2 = RentInfo with
+      scooterNumber = 2
+      renter
+      owner
+      start = time (date 2023 Aug 10) 12 30 00
+      end = time (date 2023 Aug 9) 14 00 00
+    
+  request1 <- submitMustFail renter do
+    createCmd RentRequest with
+      requestInfo = rentInfo1
+      responseText = None
+
+  request2 <- submitMustFail renter do
+    createCmd RentRequest with
+      requestInfo = rentInfo2
+      responseText = None
+
+  return ()
+
+
+-- renter cannot exercise Accept or Reject on his own RentRequest contracts (as he is not the owner)
+testCantAcceptRejectRequestIfNotOwner = script do
+  (baseParties@BaseParties{..}, request1, request2) <- testCreateRentRequest
+
+  acceptedDeal1 <- submitMustFail renter do
+    exerciseCmd request1 Accept
+  
+  deniedRequest2 <- submitMustFail renter do
+    exerciseCmd request2 Reject with
+      response = None
+
+  return ()
+
+
+-- owner cannot exercise FinishDeal on RentalDeal as he is not the renter
+testCantFinishDealIfNotRenter = script do
+  (baseParties@BaseParties{..}, acceptedDeal1, deniedRequest2) <- testAcceptDenyRentRequest
+
+  submitMustFail owner do
+    exerciseCmd acceptedDeal1 FinishDeal
+
+  return ()
+
+-- renter cannot exercise FinishDeal on his RentalDeal before the time ends (current time < end date)
+testCantFinishDealBeforeEnd = script do
+  (baseParties@BaseParties{..}, acceptedDeal1, deniedRequest2) <- testAcceptDenyRentRequest
+
+  setTime(time (date 2023 Aug 1) 18 30 00)
+
+  submitMustFail renter do
+    exerciseCmd acceptedDeal1 FinishDeal
+
+  return ()
+
+
+-- renter cannot create RentalRecipe contracts as they are made only after the RentalDeal is finished
+testCantCreateOwnRecipe = script do
+  (baseParties@BaseParties{..}, acceptedDeal1, deniedRequest2) <- testAcceptDenyRentRequest
+
+  Some dealContract <- queryContractId renter acceptedDeal1
+
+  submitMustFail renter do
+    createCmd RentalRecipe with
+      deal = dealContract
+      renter
+
+  return ()

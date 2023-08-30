@@ -1,0 +1,145 @@
+module RentalContracts where
+
+import DA.Time
+
+data ScooterInfo = ScooterInfo with
+  owner: Party
+  number: Int
+  model: Text
+    deriving (Show, Eq, Ord)
+
+-- Scooter contract can be created by the owner with basic info and condition note provide help with deciding if scooter can be rented 
+template Scooter
+  with
+    scooterInfo: ScooterInfo
+    conditionNote: Optional (Text) --either some text with the info about Scooter condition or None
+  where
+    signatory scooterInfo.owner
+
+
+
+data RentInfo = RentInfo with
+  scooterNumber: Int
+  owner: Party
+  renter: Party
+  start: Time
+  end: Time
+    deriving (Show, Eq)
+
+class Duration i o where
+    getDuration : i -> o
+
+instance Duration RentInfo RelTime where
+    getDuration deal =
+        let
+            dealDuration: RelTime
+            dealDuration = subTime deal.end deal.start -- duration of rent in RelTime
+        in 
+            dealDuration
+
+
+type RentRequestId = ContractId RentRequest
+
+template RentRequest
+  with 
+    requestInfo: RentInfo
+    responseText: Optional (Text) -- can be None or Text with the reject response provided by the owner
+  where
+    signatory requestInfo.renter
+    observer requestInfo.owner
+    
+    ensure (requestInfo.end > requestInfo.start) -- request end has to be later than start
+
+    choice Accept: RentalDealId
+      controller requestInfo.owner
+      do
+        create RentalDeal with
+          dealInfo = requestInfo
+
+    -- owner can reject the request providing the response text or None
+    choice Reject: RentRequestId
+      with
+        response: Optional(Text)
+      controller requestInfo.owner
+      do
+        create this with
+          responseText = response
+
+    
+    choice RemoveRequest: ()
+      controller requestInfo.renter
+      do
+        return()
+
+    -- owner can check the history of previous deals to see if the renter is experienced with this rental process
+    nonconsuming choice PreviousDeals: ([Text])
+            with
+                previousDeals: [(ContractId RentalRecipe, RentalRecipe)]
+            controller requestInfo.owner
+            do
+                if null previousDeals 
+                  then return []
+                else do
+                    return $ map (\acc -> show acc._2.deal.dealInfo.scooterNumber <> ", Start: " <>  show acc._2.deal.dealInfo.start <> ", End: " <> show acc._2.deal.dealInfo.end) previousDeals
+
+
+
+type RentalDealId = ContractId RentalDeal
+
+template RentalDeal
+  with
+    dealInfo: RentInfo
+  where
+    signatory dealInfo.owner
+    observer dealInfo.renter
+
+    key (dealInfo.owner, dealInfo.renter, dealInfo.scooterNumber) : (Party, Party, Int)
+    maintainer key._1
+
+    ensure (dealInfo.end > dealInfo.start) -- deal end has to be later than start
+
+    -- return the contractId without archiving
+    nonconsuming choice GetCurrentDeal: RentalDealId
+      controller dealInfo.owner
+      do
+        return self
+
+    -- finish deal but only after the end date
+    choice FinishDeal: ()
+      controller dealInfo.renter
+      do
+        currentTime <- getTime
+        assertMsg "Deal can be finished only after the end date" (dealInfo.end < currentTime)
+        
+        create RentalRecipe with
+          deal = this
+          renter = dealInfo.renter
+
+        return ()
+
+    -- return if deal can be finished with the right value true or if cannot be finished then return the time left until the end in microseconds
+    nonconsuming choice CanFinishDeal : Either (Int) (Bool)
+            controller dealInfo.renter
+            do
+                currentTime <- getTime
+                let
+                  timeLeft = convertRelTimeToMicroseconds (subTime currentTime dealInfo.end)
+                
+                if timeLeft < 0 then
+                    return (Left timeLeft)
+                else 
+                    return (Right True)
+
+
+  
+  
+template RentalRecipe
+  with
+    deal: RentalDeal
+    renter: Party
+  where 
+    -- signatory same as the RentalDeal as it can be created only in the RentalDeal FinishDeal choice
+    signatory (signatory deal)
+    key (deal.dealInfo.owner, deal.dealInfo) : (Party, RentInfo)
+    maintainer key._1
+  

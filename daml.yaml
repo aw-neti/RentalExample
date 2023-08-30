@@ -1,0 +1,9 @@
+sdk-version: 2.6.5
+name: RentalExample
+source: daml
+init-script: SetupScripts:setupBase
+version: 0.0.1
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script

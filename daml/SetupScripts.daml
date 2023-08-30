@@ -1,0 +1,62 @@
+module SetupScripts where
+
+import RentalContracts
+import Daml.Script
+
+data BaseParties = BaseParties with
+  owner: Party
+  renter: Party
+
+-- allocate the parties
+allocateTestParties = script do
+  owner <- allocatePartyWithHint "Owner" (PartyIdHint "Owner")
+  renter <- allocatePartyWithHint "Renter" (PartyIdHint "Renter")
+
+  return BaseParties with
+    owner
+    renter
+
+
+data TestScooterInfos = TestScooterInfos with
+  scooter1Id: ContractId Scooter
+  scooter2Id: ContractId Scooter
+
+setupBase = script do
+  (baseParties@BaseParties{..}) <- allocateTestParties
+
+  -- construct a user identifers from text
+  ownerId <- validateUserId "OwnerGuy"
+  johnId <- validateUserId "John"
+  tomId <- validateUserId "Tom"
+
+  -- create users and give them specific rights
+  createUser (User ownerId (Some owner)) [CanActAs owner]
+  createUser (User johnId (Some renter)) [CanActAs renter]
+  createUser (User tomId (Some renter)) [CanActAs renter]
+
+  let
+    scooter1Info = ScooterInfo with
+      owner
+      number = 1
+      model = "First Model"
+    scooter2Info = ScooterInfo with
+      owner
+      number = 2
+      model = "Second Model"
+
+
+  -- create first contracts with given info to provide some base/starting data for the project
+  scooter1Id <- submit owner do
+    createCmd Scooter with
+      scooterInfo = scooter1Info
+      conditionNote = None
+  
+  scooter2Id <- submit owner do
+    createCmd Scooter with
+      scooterInfo = scooter2Info
+      conditionNote = Some "Required service between 2023-Aug-14 and 2023-Aug-16"
+
+  return (baseParties, TestScooterInfos with {scooter1Id, scooter2Id})
+  
+      
+
